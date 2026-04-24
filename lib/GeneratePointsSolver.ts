@@ -29,6 +29,7 @@ export class GeneratePointsSolver extends BaseSolver {
         rects,
         polygons,
         viaSegments: this.input.viaSegments,
+        preserveObstacleBoundaries: this.input.layerCount !== undefined,
       })
       this.output = {
         pts: result.pts,

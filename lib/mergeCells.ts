@@ -1,7 +1,8 @@
 import { concavityDepth } from "./concavityDepth"
 import { cross } from "./cross"
+import { getAvailableZFromMask, getMaskFromAvailableZ } from "./layer-utils"
 import { stitchRings } from "./stitchRings"
-import type { Point, Triangle } from "./types"
+import type { LayerMergeMode, Point, Triangle } from "./types"
 
 const edgeKey = (a: number, b: number) =>
   a < b ? a * 100000 + b : b * 100000 + a
@@ -10,8 +11,16 @@ export const mergeCells = (params: {
   triangles: Triangle[]
   pts: Point[]
   concavityTolerance: number
-}): { cells: number[][]; depths: number[] } => {
-  const { triangles, pts, concavityTolerance } = params
+  cellAvailableZ?: number[][]
+  layerMergeMode?: LayerMergeMode
+}): { cells: number[][]; depths: number[]; availableZ?: number[][] } => {
+  const {
+    triangles,
+    pts,
+    concavityTolerance,
+    cellAvailableZ,
+    layerMergeMode = "same",
+  } = params
   if (!triangles.length) return { cells: [], depths: [] }
 
   const cells = triangles.map(([a, b, c]) => {
@@ -21,6 +30,15 @@ export const mergeCells = (params: {
     if (!pa || !pb || !pc) return [a, b, c]
     return cross({ o: pa, a: pb, b: pc }) < 0 ? [a, c, b] : [a, b, c]
   })
+  const cellZMasks = cellAvailableZ?.map(getMaskFromAvailableZ)
+
+  const getMergedMask = (i: number, j: number) => {
+    if (!cellZMasks) return undefined
+    const mergedMask = cellZMasks[i]! & cellZMasks[j]!
+    if (mergedMask === 0) return 0
+    if (layerMergeMode === "same" && cellZMasks[i] !== cellZMasks[j]) return 0
+    return mergedMask
+  }
 
   let changed = true
   let iterations = 0
@@ -67,6 +85,8 @@ export const mergeCells = (params: {
 
         const merged = stitchRings(cells[i] ?? [], cells[j] ?? [])
         if (!merged) continue
+        const mergedMask = getMergedMask(i, j)
+        if (mergedMask === 0) continue
 
         const depth = concavityDepth(merged, pts)
         if (depth <= concavityTolerance + 1e-6 && depth < bestDepth) {
@@ -81,10 +101,20 @@ export const mergeCells = (params: {
     if (bestI < 0 || bestJ < 0 || !bestRing) break
 
     cells[bestI] = bestRing
+    if (cellZMasks) {
+      cellZMasks[bestI] = getMergedMask(bestI, bestJ)!
+      cellZMasks.splice(bestJ, 1)
+    }
     cells.splice(bestJ, 1)
     changed = true
   }
 
   const depths = cells.map((cell) => concavityDepth(cell, pts))
-  return { cells, depths }
+  return {
+    cells,
+    depths,
+    ...(cellZMasks
+      ? { availableZ: cellZMasks.map((mask) => getAvailableZFromMask(mask)) }
+      : {}),
+  }
 }

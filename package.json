@@ -14,11 +14,15 @@
     "start": "cosmos",
     "build": "tsup --dts --format esm ./lib/index.ts",
     "build:site": "cosmos-export",
+    "benchmark": "bun run scripts/benchmark.ts",
     "format:check": "biome format .",
     "format": "biome format --write ."
   },
   "devDependencies": {
     "@biomejs/biome": "^1.8.3",
+    "@tscircuit/autorouting-dataset-01": "^1.0.53",
+    "@tscircuit/capacity-autorouter": "^0.0.452",
+    "@tscircuit/hypergraph": "^0.0.72",
     "@tscircuit/solver-utils": "^0.0.14",
     "@types/bun": "latest",
     "@types/react": "^19.2.14",
@@ -30,6 +34,7 @@
     "react-cosmos": "^7.1.1",
     "react-cosmos-plugin-vite": "^7.1.1",
     "react-dom": "^19.2.4",
+    "tiny-hypergraph": "git+https://github.com/tscircuit/tiny-hypergraph.git#d0a8db86a66d0065bf82e5c6fbddae60b1b22b47",
     "tsup": "^8.5.1",
     "vite": "^7.3.1"
   },

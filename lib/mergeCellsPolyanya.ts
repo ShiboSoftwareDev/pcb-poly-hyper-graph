@@ -1,5 +1,6 @@
 import { cross } from "./cross"
-import type { Point, Triangle } from "./types"
+import { getAvailableZFromMask, getMaskFromAvailableZ } from "./layer-utils"
+import type { LayerMergeMode, Point, Triangle } from "./types"
 
 /**
  * Polyanya-style two-phase merge for CDT triangles:
@@ -23,8 +24,10 @@ const edgeKey = (a: number, b: number): number =>
 export const mergeCellsPolyanya = (params: {
   triangles: Triangle[]
   pts: Point[]
-}): { cells: number[][]; depths: number[] } => {
-  const { triangles, pts } = params
+  cellAvailableZ?: number[][]
+  layerMergeMode?: LayerMergeMode
+}): { cells: number[][]; depths: number[]; availableZ?: number[][] } => {
+  const { triangles, pts, cellAvailableZ, layerMergeMode = "same" } = params
   if (!triangles.length) return { cells: [], depths: [] }
 
   // --- Initialise cells (ensure CCW) ---
@@ -36,6 +39,7 @@ export const mergeCellsPolyanya = (params: {
     if (!pa || !pb || !pc) return [a, b, c]
     return cross({ o: pa, a: pb, b: pc }) < 0 ? [a, c, b] : [a, b, c]
   })
+  const cellZMasks = cellAvailableZ?.map(getMaskFromAvailableZ)
 
   // --- Build and maintain adjacency via edge map ---
   // Edge at position k in a cell goes from ring[k] → ring[(k+1)%len].
@@ -181,6 +185,14 @@ export const mergeCellsPolyanya = (params: {
     const nextX = pts[xRing[(lastK + 2) % N]!]!
     if (cross({ o: prevY, a: pB, b: nextX }) < -1e-8) return false
 
+    if (cellZMasks) {
+      const mergedMask = cellZMasks[xIdx]! & cellZMasks[yIdx]!
+      if (mergedMask === 0) return false
+      if (layerMergeMode === "same" && cellZMasks[xIdx] !== cellZMasks[yIdx]) {
+        return false
+      }
+    }
+
     return true
   }
 
@@ -227,6 +239,10 @@ export const mergeCellsPolyanya = (params: {
 
     cells[xIdx] = newRing
     cells[yIdx] = null
+    if (cellZMasks) {
+      cellZMasks[xIdx] = cellZMasks[xIdx]! & cellZMasks[yIdx]!
+      cellZMasks[yIdx] = 0
+    }
   }
 
   // --- Phase 1: Dead-end elimination ---
@@ -360,9 +376,18 @@ export const mergeCellsPolyanya = (params: {
 
   // --- Compact and return ---
   const liveCells = cells.filter((c): c is number[] => c !== null)
+  const liveAvailableZ = cellZMasks
+    ? cells.flatMap((cell, index) =>
+        cell === null ? [] : [getAvailableZFromMask(cellZMasks[index]!)],
+      )
+    : undefined
 
   // Depths are all 0 since Polyanya merge enforces strict convexity
   const depths = liveCells.map(() => 0)
 
-  return { cells: liveCells, depths }
+  return {
+    cells: liveCells,
+    depths,
+    ...(liveAvailableZ ? { availableZ: liveAvailableZ } : {}),
+  }
 }

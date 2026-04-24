@@ -6,6 +6,9 @@ export type Point = {
 export type Via = {
   center: Point
   diameter: number
+  layers?: string[]
+  zLayers?: number[]
+  isCopperPour?: boolean
 }
 
 export type Rect = {
@@ -13,10 +16,16 @@ export type Rect = {
   width: number
   height: number
   ccwRotation: number
+  layers?: string[]
+  zLayers?: number[]
+  isCopperPour?: boolean
 }
 
 export type Polygon = {
   points: Point[]
+  layers?: string[]
+  zLayers?: number[]
+  isCopperPour?: boolean
 }
 
 export type Bounds = {
@@ -35,6 +44,8 @@ export type ConvexRegionsComputeInput = {
   polygons?: Polygon[]
   clearance: number
   concavityTolerance: number
+  layerCount?: number
+  layerMergeMode?: LayerMergeMode
   useConstrainedDelaunay?: boolean
   usePolyanyaMerge?: boolean
   viaSegments?: number
@@ -46,6 +57,7 @@ export type ConvexRegionsComputeResult = {
   regions: Point[][]
   hulls: Point[][]
   depths: number[]
+  availableZ?: number[][]
 }
 
 export type RegionPort = {
@@ -66,20 +78,26 @@ export type TriangulateStageInput = GeneratePointsStageOutput & {
   rects?: Rect[]
   polygons?: Polygon[]
   clearance: number
+  layerCount?: number
   useConstrainedDelaunay?: boolean
 }
 
 export type TriangulateStageOutput = GeneratePointsStageOutput & {
   bounds: Bounds
   validTris: Triangle[]
+  triangleAvailableZ?: number[][]
 }
 
 export type MergeCellsStageInput = TriangulateStageOutput & {
   concavityTolerance: number
+  layerMergeMode?: LayerMergeMode
   usePolyanyaMerge?: boolean
 }
 
 export type MergeCellsStageOutput = TriangulateStageOutput & {
   cells: number[][]
   depths: number[]
+  availableZ?: number[][]
 }
+
+export type LayerMergeMode = "same" | "intersection"

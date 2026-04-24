@@ -34,6 +34,65 @@ console.log(output.hulls)    // Point[][] — convex hull of each region
 console.log(output.depths)   // number[]  — concavity depth per region
 ```
 
+### Layer-aware PCB nav meshes
+
+Pass `layerCount` and per-obstacle `layers` or `zLayers` to compute
+`availableZ` for each output region. Layer-specific obstacles remain in the
+triangulation instead of becoming 2D holes, so a copper pour on `inner1` of a
+4-layer board can produce regions with `availableZ: [0, 2, 3]`.
+
+```ts
+const result = computeConvexRegions({
+  bounds: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
+  rects: [
+    {
+      center: { x: 5, y: 5 },
+      width: 4,
+      height: 4,
+      ccwRotation: 0,
+      layers: ["inner1"],
+      isCopperPour: true,
+    },
+  ],
+  clearance: 0,
+  concavityTolerance: 0,
+  layerCount: 4,
+  layerMergeMode: "same",
+})
+
+console.log(result.availableZ)
+```
+
+`layerMergeMode: "same"` only merges adjacent cells with identical layer masks.
+`"intersection"` allows merges when cells share at least one layer and assigns
+the merged region the layer intersection.
+
+### PolyHyperGraph export
+
+Use `buildPolyHyperGraphFromRegions` to turn generated convex polygons into the
+serialized graph shape consumed by tiny-hypergraph's `loadSerializedHyperGraphAsPoly`.
+
+```ts
+import {
+  buildPolyHyperGraphFromRegions,
+  computeConvexRegions,
+} from "@tscircuit/find-convex-regions"
+
+const regions = computeConvexRegions({ /* ... layer-aware input ... */ })
+const graph = buildPolyHyperGraphFromRegions({
+  regions: regions.regions,
+  availableZ: regions.availableZ,
+  layerCount: 4,
+  connections: [
+    {
+      connectionId: "net-1",
+      start: { x: 1, y: 1, layer: "top" },
+      end: { x: 9, y: 9, layer: "bottom" },
+    },
+  ],
+})
+```
+
 ### Rectangular obstacles
 
 ```ts
@@ -160,6 +219,8 @@ type Bounds  = { minX: number; maxX: number; minY: number; maxY: number }
 | `polygons` | Arbitrary closed polygon obstacles (3+ vertices). |
 | `clearance` | Buffer distance added around every obstacle boundary. |
 | `concavityTolerance` | `0` for strictly convex regions. Higher values allow shallow concavity when merging adjacent cells, producing fewer, larger regions. Ignored when `usePolyanyaMerge` is `true`. |
+| `layerCount` | Number of PCB routing layers. Enables layer-aware filtering and `availableZ` output. |
+| `layerMergeMode` | `"same"` (default) preserves exact layer masks while merging. `"intersection"` permits merges across different layer masks and keeps only shared layers. |
 | `useConstrainedDelaunay` | Use CDT instead of unconstrained Bowyer-Watson. Prevents edge crossings through obstacles. Uses minimal sampling (corner-only rects, octagon vias). Default `true`. Set to `false` to use the legacy unconstrained approach. |
 | `usePolyanyaMerge` | Use Polyanya-style two-phase merge (dead-end elimination + max-area priority queue) instead of greedy concavity-bounded merge. Produces strictly convex regions, 3-10x faster at scale. Default `true`. Set to `false` to use the legacy greedy merge. |
 | `viaSegments` | Number of points per via boundary ring. Default `8` with CDT, `24` without. |
@@ -173,7 +234,25 @@ type ConvexRegionsComputeResult = {
   regions: Point[][]   // Final merged convex regions (ordered vertex rings)
   hulls: Point[][]     // Convex hull of each region
   depths: number[]     // Max concavity depth of each region (0 = perfectly convex)
+  availableZ?: number[][] // Available routing layers per region when layerCount is set
 }
+```
+
+## Benchmark
+
+Run the dataset01 comparison with:
+
+```bash
+./benchmark.sh
+```
+
+The benchmark partially runs `@tscircuit/capacity-autorouter` pipeline 4 to the
+tiny-hypergraph port-point graph, measures baseline max/average region cost,
+then builds a find-convex-regions PolyHyperGraph for the same SRJ and measures
+`PolyHyperGraphSolver` region costs. Useful knobs:
+
+```bash
+SCENARIO_LIMIT=20 EFFORT=0.1 LAYER_MERGE_MODE=same ./benchmark.sh
 ```
 
 ## How It Works

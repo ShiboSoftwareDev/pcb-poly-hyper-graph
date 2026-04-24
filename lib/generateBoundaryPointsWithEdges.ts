@@ -27,6 +27,7 @@ export const generateBoundaryPointsWithEdges = (params: {
   rects: Rect[]
   polygons?: Polygon[]
   viaSegments?: number
+  preserveObstacleBoundaries?: boolean
 }): {
   pts: Point[]
   constraintEdges: [number, number][]
@@ -39,6 +40,7 @@ export const generateBoundaryPointsWithEdges = (params: {
     rects,
     polygons = [],
     viaSegments = 8,
+    preserveObstacleBoundaries = false,
   } = params
   const allPts: Point[] = []
   const constraintEdges: [number, number][] = []
@@ -108,8 +110,12 @@ export const generateBoundaryPointsWithEdges = (params: {
     obstacleRings.push(offsetPoints)
   }
 
-  // Union overlapping obstacle boundaries before adding constraint edges
-  const mergedRings = unionObstacleBoundaries(obstacleRings)
+  // In layered mode, distinct obstacle boundaries must remain present even
+  // when their XY projections overlap, otherwise availability transitions
+  // between layer masks disappear from the nav mesh.
+  const mergedRings = preserveObstacleBoundaries
+    ? obstacleRings
+    : unionObstacleBoundaries(obstacleRings)
 
   for (const ring of mergedRings) {
     ringBoundaries.push(constraintEdges.length)

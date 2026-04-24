@@ -19,19 +19,25 @@ export class MergeCellsSolver extends BaseSolver {
         ? mergeCellsPolyanya({
             triangles: this.input.validTris,
             pts: this.input.pts,
+            cellAvailableZ: this.input.triangleAvailableZ,
+            layerMergeMode: this.input.layerMergeMode,
           })
         : mergeCells({
             triangles: this.input.validTris,
             pts: this.input.pts,
             concavityTolerance: this.input.concavityTolerance,
+            cellAvailableZ: this.input.triangleAvailableZ,
+            layerMergeMode: this.input.layerMergeMode,
           })
 
     this.output = {
       pts: this.input.pts,
       bounds: this.input.bounds,
       validTris: this.input.validTris,
+      triangleAvailableZ: this.input.triangleAvailableZ,
       cells: merged.cells,
       depths: merged.depths,
+      ...(merged.availableZ ? { availableZ: merged.availableZ } : {}),
     }
 
     this.stats = {

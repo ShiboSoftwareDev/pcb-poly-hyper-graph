@@ -27,6 +27,7 @@ export class BuildRegionsSolver extends BaseSolver {
       regions,
       hulls,
       depths: this.input.depths,
+      ...(this.input.availableZ ? { availableZ: this.input.availableZ } : {}),
     }
     this.stats = { regions: regions.length }
     this.solved = true

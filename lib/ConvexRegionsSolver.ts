@@ -29,6 +29,7 @@ export class ConvexRegionsSolver extends BasePipelineSolver<ConvexRegionsCompute
           rects: instance.inputProblem.rects,
           polygons: instance.inputProblem.polygons,
           clearance: instance.inputProblem.clearance,
+          layerCount: instance.inputProblem.layerCount,
           useConstrainedDelaunay: instance.inputProblem.useConstrainedDelaunay,
           constraintEdges: generated.constraintEdges,
           hadCrossings: generated.hadCrossings,
@@ -44,7 +45,9 @@ export class ConvexRegionsSolver extends BasePipelineSolver<ConvexRegionsCompute
           pts: triangulated.pts,
           bounds: triangulated.bounds,
           validTris: triangulated.validTris,
+          triangleAvailableZ: triangulated.triangleAvailableZ,
           concavityTolerance: instance.inputProblem.concavityTolerance,
+          layerMergeMode: instance.inputProblem.layerMergeMode,
           usePolyanyaMerge: instance.inputProblem.usePolyanyaMerge,
         },
       ]
