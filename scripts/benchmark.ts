@@ -365,14 +365,14 @@ const runFindConvexRegionsPoly = (scenario: Scenario): SolverMetrics => {
     }
 
     return getRegionMetrics(
-      "find-convex-regions-poly",
+      "pcb-poly-hyper-graph-poly",
       scenario.name,
       performance.now() - startedAt,
       solver,
     )
   } catch (error) {
     return failMetrics(
-      "find-convex-regions-poly",
+      "pcb-poly-hyper-graph-poly",
       scenario.name,
       startedAt,
       error,
@@ -452,7 +452,7 @@ for (const scenario of scenarios) {
 console.log("\nsummary")
 for (const summary of [
   summarize("capacity-autorouter", baselineMetrics),
-  summarize("find-convex-regions-poly", polyMetrics),
+  summarize("pcb-poly-hyper-graph-poly", polyMetrics),
 ]) {
   console.log(
     [

@@ -8,13 +8,7 @@
     "indentStyle": "space"
   },
   "files": {
-    "ignore": [
-      "cosmos-export",
-      "dist",
-      "package.json",
-      "benchmarking-dist",
-      "references"
-    ]
+    "ignore": ["cosmos-export", "package.json", "references"]
   },
   "javascript": {
     "formatter": {

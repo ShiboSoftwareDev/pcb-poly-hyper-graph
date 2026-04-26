@@ -1,19 +1,33 @@
-# @tscircuit/find-convex-regions
+# pcb-poly-hyper-graph
 
 Decompose a 2D rectangular area into convex regions around obstacles (vias, rectangles, and arbitrary polygons). Useful for PCB autorouting and spatial partitioning where convex sub-regions simplify pathfinding.
 
 ## Installation
 
+Install directly from GitHub codeload with Bun:
+
 ```bash
-npm install @tscircuit/find-convex-regions
+bun add pcb-poly-hyper-graph@https://codeload.github.com/tscircuit/pcb-poly-hyper-graph/tar.gz/refs/heads/main
 ```
+
+For reproducible installs, pin a commit SHA instead of `refs/heads/main`:
+
+```json
+{
+  "dependencies": {
+    "pcb-poly-hyper-graph": "https://codeload.github.com/tscircuit/pcb-poly-hyper-graph/tar.gz/<commit-sha>"
+  }
+}
+```
+
+This package is installed as TypeScript source from `lib/index.ts`; there is no package build step.
 
 ## Usage
 
 ### Basic (vias only)
 
 ```ts
-import { ConvexRegionsSolver } from "@tscircuit/find-convex-regions"
+import { ConvexRegionsSolver } from "pcb-poly-hyper-graph"
 
 const solver = new ConvexRegionsSolver({
   bounds: { minX: 0, maxX: 450, minY: 0, maxY: 450 },
@@ -76,7 +90,7 @@ serialized graph shape consumed by tiny-hypergraph's `loadSerializedHyperGraphAs
 import {
   buildPolyHyperGraphFromRegions,
   computeConvexRegions,
-} from "@tscircuit/find-convex-regions"
+} from "pcb-poly-hyper-graph"
 
 const regions = computeConvexRegions({ /* ... layer-aware input ... */ })
 const graph = buildPolyHyperGraphFromRegions({
@@ -175,7 +189,7 @@ const solver = new ConvexRegionsSolver({
 A standalone function is also available if you don't need the solver pipeline:
 
 ```ts
-import { computeConvexRegions } from "@tscircuit/find-convex-regions"
+import { computeConvexRegions } from "pcb-poly-hyper-graph"
 
 const result = computeConvexRegions({
   bounds: { minX: 0, maxX: 450, minY: 0, maxY: 450 },
@@ -190,7 +204,7 @@ const result = computeConvexRegions({
 Compute entry/exit points along shared edges between regions:
 
 ```ts
-import { computeRegionPorts } from "@tscircuit/find-convex-regions"
+import { computeRegionPorts } from "pcb-poly-hyper-graph"
 
 const ports = computeRegionPorts({
   regions: result.regions,
@@ -248,7 +262,7 @@ Run the dataset01 comparison with:
 
 The benchmark partially runs `@tscircuit/capacity-autorouter` pipeline 4 to the
 tiny-hypergraph port-point graph, measures baseline max/average region cost,
-then builds a find-convex-regions PolyHyperGraph for the same SRJ and measures
+then builds a pcb-poly-hyper-graph PolyHyperGraph for the same SRJ and measures
 `PolyHyperGraphSolver` region costs. Useful knobs:
 
 ```bash
