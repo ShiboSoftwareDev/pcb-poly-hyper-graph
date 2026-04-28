@@ -15,6 +15,7 @@ import {
   type PolyHyperGraphObstacleRegion,
   type Polygon,
   type Rect,
+  type SerializedPolyHyperGraph,
 } from "../lib/index"
 
 const tinyHypergraphModuleLoaders = import.meta.glob(
@@ -87,6 +88,81 @@ const defaultSampleName =
 
 const DEFAULT_CONCAVITY_TOLERANCE = 0.2
 const DEFAULT_EFFORT = 1
+
+const getLayerName = (z: number, layerCount: number) => {
+  if (z === 0) return "Top"
+  if (z === layerCount - 1) return "Bottom"
+  return `Z${z}`
+}
+
+const getRegionAvailabilityKind = (
+  availableZ: readonly number[] | undefined,
+  layerCount: number,
+) => {
+  const hasTop = availableZ?.includes(0) ?? false
+  const hasBottom = availableZ?.includes(Math.max(0, layerCount - 1)) ?? false
+  if (hasTop && hasBottom) return "shared"
+  if (hasTop) return "top"
+  if (hasBottom) return "bottom"
+  return "blocked"
+}
+
+const getLayerRegionFill = (
+  availableZ: readonly number[] | undefined,
+  layerCount: number,
+) => {
+  const kind = getRegionAvailabilityKind(availableZ, layerCount)
+  if (kind === "shared") return "rgba(124, 58, 237, 0.24)"
+  if (kind === "top") return "rgba(220, 38, 38, 0.28)"
+  if (kind === "bottom") return "rgba(37, 99, 235, 0.28)"
+  return "rgba(148, 163, 184, 0.18)"
+}
+
+const getLayerRegionStroke = (
+  availableZ: readonly number[] | undefined,
+  layerCount: number,
+) => {
+  const kind = getRegionAvailabilityKind(availableZ, layerCount)
+  if (kind === "shared") return "rgba(124, 58, 237, 0.75)"
+  if (kind === "top") return "rgba(220, 38, 38, 0.85)"
+  if (kind === "bottom") return "rgba(37, 99, 235, 0.85)"
+  return "rgba(100, 116, 139, 0.5)"
+}
+
+const getAvailableZLabel = (
+  availableZ: readonly number[] | undefined,
+  layerCount: number,
+) =>
+  `available: ${
+    availableZ?.map((z) => `${getLayerName(z, layerCount)} z${z}`).join(", ") ??
+    "none"
+  }`
+
+const applyLayerRegionColors = (
+  graphics: any,
+  graph: SerializedPolyHyperGraph,
+  layerCount: number,
+) => {
+  if (!Array.isArray(graphics?.polygons)) return graphics
+
+  graphics.polygons = graphics.polygons.map((polygon: any, index: number) => {
+    const availableZ = graph.regions[index]?.d.availableZ
+    if (!availableZ) return polygon
+
+    const availabilityLabel = getAvailableZLabel(availableZ, layerCount)
+    return {
+      ...polygon,
+      fill: getLayerRegionFill(availableZ, layerCount),
+      stroke: getLayerRegionStroke(availableZ, layerCount),
+      label:
+        typeof polygon.label === "string"
+          ? `${polygon.label}\n${availabilityLabel}`
+          : availabilityLabel,
+    }
+  })
+
+  return graphics
+}
 
 const getRotationRadians = (obstacle: SimpleRouteObstacle) =>
   ((obstacle.ccwRotationDegrees ?? 0) * Math.PI) / 180
@@ -302,6 +378,9 @@ const createPolySolverForSample = (params: {
     solverOptions,
   ]
   solver.getSolverName = () => `Dataset01PolyHyperGraphSolver(${sampleName})`
+  const visualize = solver.visualize.bind(solver)
+  solver.visualize = () =>
+    applyLayerRegionColors(visualize(), graph, srj.layerCount)
 
   return {
     solver,
