@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs"
 import { AutoroutingPipelineSolver4_TinyHypergraph } from "@tscircuit/capacity-autorouter"
 import {
+  getLocalPcbPolyIndexPath,
+  getLocalTscircuitAutorouterBundle,
+} from "./load-tscircuit-autorouter-with-local-pcb-poly"
+import {
   applySerializedRegionNetIdsToLoadedProblem,
   buildPolyHyperGraphFromRegions,
   computeConvexRegions,
@@ -81,6 +85,7 @@ const usePolyanyaMerge = process.env.USE_POLYANYA_MERGE === "true"
 const tscircuitAutorouterIndexUrl = process.env.TSCIRCUIT_AUTOROUTER_INDEX
   ? new URL(`file://${process.env.TSCIRCUIT_AUTOROUTER_INDEX}`)
   : new URL("../../tscircuit-autorouter/lib/index.ts", import.meta.url)
+let tscircuitAutorouterPcbPolyResolution = getLocalPcbPolyIndexPath()
 
 type TscircuitPolyPipelineSolver = {
   solved?: boolean
@@ -98,8 +103,14 @@ type TscircuitPolyPipelineSolver = {
   }
 }
 
-const tscircuitAutorouterModule = existsSync(tscircuitAutorouterIndexUrl)
-  ? ((await import(tscircuitAutorouterIndexUrl.href)) as Record<
+const tscircuitAutorouterBundle = existsSync(tscircuitAutorouterIndexUrl)
+  ? await getLocalTscircuitAutorouterBundle(tscircuitAutorouterIndexUrl)
+  : null
+tscircuitAutorouterPcbPolyResolution =
+  tscircuitAutorouterBundle?.localPcbPolyIndexPath ??
+  tscircuitAutorouterPcbPolyResolution
+const tscircuitAutorouterModule = tscircuitAutorouterBundle
+  ? ((await import(tscircuitAutorouterBundle.moduleUrl.href)) as Record<
       string,
       unknown
     >)
@@ -545,7 +556,8 @@ console.log(
     `concavityTolerance=${concavityTolerance}`,
     `layerMergeMode=${layerMergeMode}`,
     `usePolyanyaMerge=${usePolyanyaMerge}`,
-    `tscircuitAutorouter=${TscircuitPolyPipelineSolverCtor ? tscircuitAutorouterIndexUrl.href : "unavailable"}`,
+    `tscircuitAutorouter=${TscircuitPolyPipelineSolverCtor ? `${tscircuitAutorouterIndexUrl.href} bundled` : "unavailable"}`,
+    `tscircuitAutorouterPcbPoly=${TscircuitPolyPipelineSolverCtor ? tscircuitAutorouterPcbPolyResolution : "unavailable"}`,
   ].join(" "),
 )
 

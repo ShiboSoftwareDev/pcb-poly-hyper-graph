@@ -18,6 +18,7 @@
     "start": "cosmos",
     "build:site": "cosmos-export",
     "benchmark": "bun run scripts/benchmark.ts",
+    "repro:circuit02": "bun run scripts/repro-circuit02.ts",
     "format:check": "biome format .",
     "format": "biome format --write ."
   },

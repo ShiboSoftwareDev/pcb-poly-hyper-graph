@@ -312,6 +312,60 @@ test("buildPolyHyperGraphFromRegions emits net-reserved obstacle regions with bo
   expect(loaded.problem.regionNetId[obstacleRegionIndex!]).toBe(0)
 })
 
+test("buildPolyHyperGraphFromRegions connects overlapping same-net obstacle regions", () => {
+  const graph = buildPolyHyperGraphFromRegions({
+    regions: [],
+    layerCount: 1,
+    connections: [
+      {
+        connectionId: "source_trace_a",
+        mutuallyConnectedNetworkId: "source_net_a",
+        start: { x: 0, y: 0, z: 0, pointId: "pcb_port_a" },
+        end: { x: 1.5, y: 0, z: 0, pointId: "pcb_port_b" },
+      },
+    ],
+    obstacleRegions: [
+      {
+        regionId: "pad-a",
+        polygon: [
+          { x: -1, y: -1 },
+          { x: 1, y: -1 },
+          { x: 1, y: 1 },
+          { x: -1, y: 1 },
+        ],
+        availableZ: [0],
+        connectedTo: ["source_net_a", "pcb_port_a"],
+      },
+      {
+        regionId: "pad-b",
+        polygon: [
+          { x: 0.5, y: -1 },
+          { x: 2.5, y: -1 },
+          { x: 2.5, y: 1 },
+          { x: 0.5, y: 1 },
+        ],
+        availableZ: [0],
+        connectedTo: ["source_net_a", "pcb_port_b"],
+      },
+    ],
+  })
+
+  const obstacleContactPorts = graph.ports.filter(
+    (port) =>
+      port.portId.includes("::obstacle-contact") &&
+      ((port.region1Id === "pad-a" && port.region2Id === "pad-b") ||
+        (port.region1Id === "pad-b" && port.region2Id === "pad-a")),
+  )
+
+  expect(obstacleContactPorts).toHaveLength(1)
+  expect(
+    graph.regions.find((region) => region.regionId === "pad-a")?.pointIds,
+  ).toContain(obstacleContactPorts[0]!.portId)
+  expect(
+    graph.regions.find((region) => region.regionId === "pad-b")?.pointIds,
+  ).toContain(obstacleContactPorts[0]!.portId)
+})
+
 test("buildPolyHyperGraphFromRegions connects obstacle ports across two-sided layered boundary edges", () => {
   const graph = buildPolyHyperGraphFromRegions({
     regions: [

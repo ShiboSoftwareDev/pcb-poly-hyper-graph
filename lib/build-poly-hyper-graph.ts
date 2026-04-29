@@ -182,6 +182,59 @@ const pointInPolygon = (point: Point, polygon: Point[]) => {
   return inside
 }
 
+const segmentIntersectionPoint = (a: Point, b: Point, c: Point, d: Point) => {
+  const abx = b.x - a.x
+  const aby = b.y - a.y
+  const cdx = d.x - c.x
+  const cdy = d.y - c.y
+  const denominator = abx * cdy - aby * cdx
+
+  if (Math.abs(denominator) < EPSILON) {
+    for (const point of [a, b]) {
+      if (pointOnSegment(point, c, d)) return point
+    }
+    for (const point of [c, d]) {
+      if (pointOnSegment(point, a, b)) return point
+    }
+    return undefined
+  }
+
+  const t = ((c.x - a.x) * cdy - (c.y - a.y) * cdx) / denominator
+  const u = ((c.x - a.x) * aby - (c.y - a.y) * abx) / denominator
+  if (t < -EPSILON || t > 1 + EPSILON || u < -EPSILON || u > 1 + EPSILON) {
+    return undefined
+  }
+
+  return { x: a.x + t * abx, y: a.y + t * aby }
+}
+
+const findPolygonContactPoint = (first: Point[], second: Point[]) => {
+  for (const point of first) {
+    if (pointInPolygon(point, second)) return point
+  }
+  for (const point of second) {
+    if (pointInPolygon(point, first)) return point
+  }
+
+  for (let firstIndex = 0; firstIndex < first.length; firstIndex++) {
+    const firstA = first[firstIndex]!
+    const firstB = first[(firstIndex + 1) % first.length]!
+    for (let secondIndex = 0; secondIndex < second.length; secondIndex++) {
+      const secondA = second[secondIndex]!
+      const secondB = second[(secondIndex + 1) % second.length]!
+      const intersection = segmentIntersectionPoint(
+        firstA,
+        firstB,
+        secondA,
+        secondB,
+      )
+      if (intersection) return intersection
+    }
+  }
+
+  return undefined
+}
+
 const getPointCandidateZ = (
   point: PolyHyperGraphConnectionPoint,
   layerCount: number,
@@ -615,6 +668,50 @@ export const buildPolyHyperGraphFromRegions = (params: {
             portId,
           )
         }
+      }
+    }
+  }
+
+  for (
+    let firstIndex = 0;
+    firstIndex < obstacleRegionInfos.length;
+    firstIndex++
+  ) {
+    const first = obstacleRegionInfos[firstIndex]!
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < obstacleRegionInfos.length;
+      secondIndex++
+    ) {
+      const second = obstacleRegionInfos[secondIndex]!
+      if (first.netId !== second.netId) continue
+
+      const sharedZ = first.availableZ.filter((z) =>
+        second.availableZ.includes(z),
+      )
+      if (sharedZ.length === 0) continue
+
+      const contactPoint = findPolygonContactPoint(
+        first.polygon,
+        second.polygon,
+      )
+      if (!contactPoint) continue
+
+      for (const z of sharedZ) {
+        const portId = pushPort({
+          region1Id: first.regionId,
+          region2Id: second.regionId,
+          pointIndex: 0,
+          portPoint: {
+            x: contactPoint.x,
+            y: contactPoint.y,
+            distToCentermostPortOnZ: 0,
+          },
+          z,
+          portIdSuffix: "::obstacle-contact",
+        })
+        serializedRegions[first.serializedRegionIndex]!.pointIds.push(portId)
+        serializedRegions[second.serializedRegionIndex]!.pointIds.push(portId)
       }
     }
   }
