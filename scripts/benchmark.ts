@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { AutoroutingPipelineSolver4_TinyHypergraph } from "@tscircuit/capacity-autorouter"
 import {
   applySerializedRegionNetIdsToLoadedProblem,
@@ -71,11 +72,45 @@ const { PolyHyperGraphSolver, loadSerializedHyperGraphAsPoly } = (await import(
 )) as any
 
 const scenarioLimit = Number(process.env.SCENARIO_LIMIT ?? 20)
-const effort = Number(process.env.EFFORT ?? 0.1)
+const effort = Number(process.env.EFFORT ?? 1)
 const maxNodeDimension = Number(process.env.MAX_NODE_DIMENSION ?? 12)
-const concavityTolerance = Number(process.env.CONCAVITY_TOLERANCE ?? 0.2)
+const concavityTolerance = Number(process.env.CONCAVITY_TOLERANCE ?? 0)
 const layerMergeMode = (process.env.LAYER_MERGE_MODE ??
   "same") as LayerMergeMode
+const usePolyanyaMerge = process.env.USE_POLYANYA_MERGE === "true"
+const tscircuitAutorouterIndexUrl = process.env.TSCIRCUIT_AUTOROUTER_INDEX
+  ? new URL(`file://${process.env.TSCIRCUIT_AUTOROUTER_INDEX}`)
+  : new URL("../../tscircuit-autorouter/lib/index.ts", import.meta.url)
+
+type TscircuitPolyPipelineSolver = {
+  solved?: boolean
+  failed?: boolean
+  error?: unknown
+  solve: () => void
+  polyGraphSolver?: {
+    polySolver?: {
+      topology: { regionCount: number }
+      problem: { routeCount: number }
+      state: {
+        regionIntersectionCaches: Array<{ existingRegionCost: number }>
+      }
+    }
+  }
+}
+
+const tscircuitAutorouterModule = existsSync(tscircuitAutorouterIndexUrl)
+  ? ((await import(tscircuitAutorouterIndexUrl.href)) as Record<
+      string,
+      unknown
+    >)
+  : null
+const TscircuitPolyPipelineSolverCtor =
+  tscircuitAutorouterModule?.AutoroutingPipelineSolver6_PolyHypergraph as
+    | (new (
+        srj: SimpleRouteJson,
+        opts?: Record<string, unknown>,
+      ) => TscircuitPolyPipelineSolver)
+    | undefined
 
 const getScenarios = (): Scenario[] =>
   Object.entries(dataset01)
@@ -316,6 +351,22 @@ const getConnectedObstacleRegionsFromSrj = (
     ]
   })
 
+const getRoutePairsFromSrj = (srj: SimpleRouteJson) =>
+  srj.connections.flatMap((connection) => {
+    const points = connection.pointsToConnect ?? []
+    if (points.length < 2) return []
+
+    const start = points[0]!
+    return points.slice(1).map((end, index) => ({
+      connectionId: `${connection.name}::${index}`,
+      mutuallyConnectedNetworkId:
+        connection.rootConnectionName ?? connection.name,
+      start,
+      end,
+      simpleRouteConnection: connection,
+    }))
+  })
+
 const runFindConvexRegionsPoly = (scenario: Scenario): SolverMetrics => {
   const startedAt = performance.now()
   try {
@@ -330,23 +381,14 @@ const runFindConvexRegionsPoly = (scenario: Scenario): SolverMetrics => {
       layerCount: srj.layerCount,
       layerMergeMode,
       useConstrainedDelaunay: true,
-      usePolyanyaMerge: true,
+      usePolyanyaMerge,
       viaSegments: 8,
     })
     const graph = buildPolyHyperGraphFromRegions({
       regions: convexRegions.regions,
       availableZ: convexRegions.availableZ,
       layerCount: srj.layerCount,
-      connections: srj.connections
-        .filter((connection) => connection.pointsToConnect.length >= 2)
-        .map((connection) => ({
-          connectionId: connection.name,
-          mutuallyConnectedNetworkId:
-            connection.rootConnectionName ?? connection.name,
-          start: connection.pointsToConnect[0]!,
-          end: connection.pointsToConnect[1]!,
-          simpleRouteConnection: connection,
-        })),
+      connections: getRoutePairsFromSrj(srj),
       obstacleRegions: getConnectedObstacleRegionsFromSrj(srj, clearance),
     })
     const loaded = loadSerializedHyperGraphAsPoly(graph as any)
@@ -380,26 +422,89 @@ const runFindConvexRegionsPoly = (scenario: Scenario): SolverMetrics => {
   }
 }
 
+const runTscircuitPolyPipeline = (scenario: Scenario): SolverMetrics => {
+  const startedAt = performance.now()
+  if (!TscircuitPolyPipelineSolverCtor) {
+    return failMetrics(
+      "tscircuit-poly-pipeline",
+      scenario.name,
+      startedAt,
+      `AutoroutingPipelineSolver6_PolyHypergraph not found at ${tscircuitAutorouterIndexUrl.href}`,
+    )
+  }
+
+  try {
+    const pipeline = new TscircuitPolyPipelineSolverCtor(
+      scenario.srj as SimpleRouteJson,
+      {
+        effort,
+      },
+    )
+    pipeline.solve()
+
+    const tinySolver = pipeline.polyGraphSolver?.polySolver
+    if (!tinySolver) {
+      throw new Error("tscircuit poly pipeline did not create a poly solver")
+    }
+
+    const metrics = getRegionMetrics(
+      "tscircuit-poly-pipeline",
+      scenario.name,
+      performance.now() - startedAt,
+      tinySolver,
+    )
+
+    if (!pipeline.solved) {
+      return {
+        ...metrics,
+        success: false,
+        error: String(pipeline.error ?? "tscircuit poly pipeline failed"),
+      }
+    }
+
+    return metrics
+  } catch (error) {
+    return failMetrics(
+      "tscircuit-poly-pipeline",
+      scenario.name,
+      startedAt,
+      error,
+    )
+  }
+}
+
 const formatNumber = (value: number) =>
   Number.isFinite(value) ? value.toFixed(4) : "fail"
 
-const printScenarioRow = (baseline: SolverMetrics, poly: SolverMetrics) => {
+const printScenarioRow = (
+  baseline: SolverMetrics,
+  poly: SolverMetrics,
+  tscircuit: SolverMetrics,
+) => {
   console.log(
     [
       baseline.scenarioName.padEnd(12),
       `baseline max=${formatNumber(baseline.maxRegionCost)}`,
       `avg=${formatNumber(baseline.avgRegionCost)}`,
+      `routes=${baseline.routeCount}`,
       `time=${baseline.timeMs.toFixed(0)}ms`,
-      `poly max=${formatNumber(poly.maxRegionCost)}`,
+      `graph max=${formatNumber(poly.maxRegionCost)}`,
       `avg=${formatNumber(poly.avgRegionCost)}`,
+      `routes=${poly.routeCount}`,
       `time=${poly.timeMs.toFixed(0)}ms`,
+      `tscircuit=${tscircuit.success ? "ok" : "fail"}`,
+      `routes=${tscircuit.routeCount}`,
+      `time=${tscircuit.timeMs.toFixed(0)}ms`,
     ].join("  "),
   )
   if (baseline.error) {
     console.log(`  baseline error: ${baseline.error}`)
   }
   if (poly.error) {
-    console.log(`  poly error: ${poly.error}`)
+    console.log(`  graph error: ${poly.error}`)
+  }
+  if (tscircuit.error) {
+    console.log(`  tscircuit error: ${tscircuit.error}`)
   }
 }
 
@@ -430,6 +535,7 @@ const summarize = (solverName: string, metrics: SolverMetrics[]) => {
 const scenarios = getScenarios()
 const baselineMetrics: SolverMetrics[] = []
 const polyMetrics: SolverMetrics[] = []
+const tscircuitMetrics: SolverMetrics[] = []
 
 console.log(
   [
@@ -438,21 +544,26 @@ console.log(
     `maxNodeDimension=${maxNodeDimension}`,
     `concavityTolerance=${concavityTolerance}`,
     `layerMergeMode=${layerMergeMode}`,
+    `usePolyanyaMerge=${usePolyanyaMerge}`,
+    `tscircuitAutorouter=${TscircuitPolyPipelineSolverCtor ? tscircuitAutorouterIndexUrl.href : "unavailable"}`,
   ].join(" "),
 )
 
 for (const scenario of scenarios) {
   const baseline = runBaseline(scenario)
   const poly = runFindConvexRegionsPoly(scenario)
+  const tscircuit = runTscircuitPolyPipeline(scenario)
   baselineMetrics.push(baseline)
   polyMetrics.push(poly)
-  printScenarioRow(baseline, poly)
+  tscircuitMetrics.push(tscircuit)
+  printScenarioRow(baseline, poly, tscircuit)
 }
 
 console.log("\nsummary")
 for (const summary of [
   summarize("capacity-autorouter", baselineMetrics),
-  summarize("pcb-poly-hyper-graph-poly", polyMetrics),
+  summarize("pcb-poly-hyper-graph-graph", polyMetrics),
+  summarize("tscircuit-poly-pipeline", tscircuitMetrics),
 ]) {
   console.log(
     [
