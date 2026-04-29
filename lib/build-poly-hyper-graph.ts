@@ -58,8 +58,11 @@ export type SerializedPolyHyperGraph = {
   }>
 }
 
-export const PORT_MARGIN_FROM_SEGMENT_ENDPOINT = 0.25
-export const PORT_SPACING = 0.25
+export const DEFAULT_TRACE_WIDTH = 0.1
+export const DEFAULT_OBSTACLE_MARGIN = 0.15
+export const PORT_SPACING = DEFAULT_TRACE_WIDTH + DEFAULT_OBSTACLE_MARGIN
+export const PORT_MARGIN_FROM_SEGMENT_ENDPOINT = (PORT_SPACING * 3) / 4
+export const MAX_DENSE_PORTS_BEFORE_DECIMATION = 5
 
 const EPSILON = 1e-9
 
@@ -214,6 +217,7 @@ const getPortPointsAlongSegment = (
   b: Point,
   portSpacing: number,
   portMarginFromSegmentEndpoint: number,
+  maxDensePortsBeforeDecimation: number,
 ) => {
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -236,22 +240,61 @@ const getPortPointsAlongSegment = (
         x: (a.x + b.x) / 2,
         y: (a.y + b.y) / 2,
         distToCentermostPortOnZ: 0,
+        cramped: true,
       },
     ]
   }
 
-  const intervalCount = Math.max(1, Math.round(usableLength / safeSpacing))
+  const densePortCount = Math.max(1, Math.floor(usableLength / safeSpacing) + 1)
+  const safeMaxDensePortsBeforeDecimation =
+    Number.isFinite(maxDensePortsBeforeDecimation) &&
+    maxDensePortsBeforeDecimation > 0
+      ? Math.floor(maxDensePortsBeforeDecimation)
+      : MAX_DENSE_PORTS_BEFORE_DECIMATION
+  const portCount =
+    densePortCount > safeMaxDensePortsBeforeDecimation
+      ? safeMaxDensePortsBeforeDecimation + Math.floor(densePortCount / 4)
+      : densePortCount
 
-  return Array.from({ length: intervalCount + 1 }, (_, index) => {
+  if (portCount <= 1) {
+    return [
+      {
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2,
+        distToCentermostPortOnZ: 0,
+        cramped: false,
+      },
+    ]
+  }
+
+  const centerDistanceFromStart = length / 2
+  const portPoints = Array.from({ length: portCount }, (_, index) => {
     const distanceFromStart =
-      endpointMargin + (usableLength * index) / intervalCount
+      endpointMargin + (usableLength * index) / (portCount - 1)
     const t = distanceFromStart / length
     return {
       x: a.x + dx * t,
       y: a.y + dy * t,
-      distToCentermostPortOnZ: Math.abs(distanceFromStart - length / 2),
+      distanceFromStart,
     }
   })
+  const centermostDistanceFromStart = portPoints.reduce(
+    (best, portPoint) =>
+      Math.abs(portPoint.distanceFromStart - centerDistanceFromStart) <
+      Math.abs(best - centerDistanceFromStart)
+        ? portPoint.distanceFromStart
+        : best,
+    portPoints[0]!.distanceFromStart,
+  )
+
+  return portPoints.map(({ x, y, distanceFromStart }) => ({
+    x,
+    y,
+    distToCentermostPortOnZ: Math.abs(
+      distanceFromStart - centermostDistanceFromStart,
+    ),
+    cramped: false,
+  }))
 }
 
 const getSinglePortPointOnSegment = (a: Point, b: Point) => {
@@ -259,6 +302,7 @@ const getSinglePortPointOnSegment = (a: Point, b: Point) => {
   return {
     ...segmentMidpoint(a, b),
     distToCentermostPortOnZ: 0,
+    cramped: false,
   }
 }
 
@@ -314,6 +358,9 @@ export const buildPolyHyperGraphFromRegions = (params: {
   portIdPrefix?: string
   portSpacing?: number
   portMarginFromSegmentEndpoint?: number
+  traceWidth?: number
+  obstacleMargin?: number
+  maxDensePortsBeforeDecimation?: number
 }): SerializedPolyHyperGraph => {
   const {
     regions,
@@ -323,8 +370,11 @@ export const buildPolyHyperGraphFromRegions = (params: {
     obstacleRegions = [],
     regionIdPrefix = "free",
     portIdPrefix = "shared-port",
-    portSpacing = PORT_SPACING,
-    portMarginFromSegmentEndpoint = PORT_MARGIN_FROM_SEGMENT_ENDPOINT,
+    traceWidth = DEFAULT_TRACE_WIDTH,
+    obstacleMargin = DEFAULT_OBSTACLE_MARGIN,
+    portSpacing = traceWidth + obstacleMargin,
+    portMarginFromSegmentEndpoint = (portSpacing * 3) / 4,
+    maxDensePortsBeforeDecimation = MAX_DENSE_PORTS_BEFORE_DECIMATION,
   } = params
   const fallbackAvailableZ = Array.from({ length: layerCount }, (_, z) => z)
   const netIndexByNetKey = new Map<string, number>()
@@ -459,7 +509,12 @@ export const buildPolyHyperGraphFromRegions = (params: {
     region1Id: string
     region2Id: string
     pointIndex: number
-    portPoint: { x: number; y: number; distToCentermostPortOnZ: number }
+    portPoint: {
+      x: number
+      y: number
+      distToCentermostPortOnZ: number
+      cramped?: boolean
+    }
     z: number
     portIdSuffix?: string
   }) => {
@@ -479,6 +534,7 @@ export const buildPolyHyperGraphFromRegions = (params: {
         y: portPoint.y,
         z,
         distToCentermostPortOnZ: portPoint.distToCentermostPortOnZ,
+        ...(portPoint.cramped ? { cramped: true } : {}),
       },
     })
     portIndex += 1
@@ -502,6 +558,7 @@ export const buildPolyHyperGraphFromRegions = (params: {
       first!.b,
       portSpacing,
       portMarginFromSegmentEndpoint,
+      maxDensePortsBeforeDecimation,
     )
     if (portPoints.length === 0) continue
 

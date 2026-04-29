@@ -2,6 +2,9 @@ import { expect, test } from "bun:test"
 import {
   applySerializedRegionNetIdsToLoadedProblem,
   buildPolyHyperGraphFromRegions,
+  DEFAULT_OBSTACLE_MARGIN,
+  DEFAULT_TRACE_WIDTH,
+  MAX_DENSE_PORTS_BEFORE_DECIMATION,
   PORT_MARGIN_FROM_SEGMENT_ENDPOINT,
   PORT_SPACING,
 } from "../lib/build-poly-hyper-graph"
@@ -144,9 +147,12 @@ test("buildPolyHyperGraphFromRegions spaces ports along long shared segments", (
   expect(graph.regions[1]?.pointIds).toHaveLength(5)
 })
 
-test("buildPolyHyperGraphFromRegions defaults to dense 0.25mm side ports", () => {
+test("buildPolyHyperGraphFromRegions defaults to rectdiff-style side ports", () => {
+  expect(DEFAULT_TRACE_WIDTH).toBe(0.1)
+  expect(DEFAULT_OBSTACLE_MARGIN).toBe(0.15)
   expect(PORT_SPACING).toBe(0.25)
-  expect(PORT_MARGIN_FROM_SEGMENT_ENDPOINT).toBe(0.25)
+  expect(PORT_MARGIN_FROM_SEGMENT_ENDPOINT).toBe(0.1875)
+  expect(MAX_DENSE_PORTS_BEFORE_DECIMATION).toBe(5)
 
   const graph = buildPolyHyperGraphFromRegions({
     regions: [
@@ -168,8 +174,68 @@ test("buildPolyHyperGraphFromRegions defaults to dense 0.25mm side ports", () =>
   })
 
   expect(graph.ports.map((port) => port.d.y).sort((a, b) => a - b)).toEqual([
-    0.25, 0.5, 0.75,
+    0.1875, 0.5, 0.8125,
   ])
+})
+
+test("buildPolyHyperGraphFromRegions decimates dense ports on long shared edges", () => {
+  const graph = buildPolyHyperGraphFromRegions({
+    regions: [
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 100, y: 100 },
+        { x: 0, y: 100 },
+      ],
+      [
+        { x: 100, y: 0 },
+        { x: 200, y: 0 },
+        { x: 200, y: 100 },
+        { x: 100, y: 100 },
+      ],
+    ],
+    availableZ: [[0], [0]],
+    layerCount: 1,
+    portSpacing: 2,
+    portMarginFromSegmentEndpoint: 1,
+  })
+
+  const sharedPorts = graph.ports.filter(
+    (port) => port.region1Id === "free-0" && port.region2Id === "free-1",
+  )
+
+  expect(sharedPorts).toHaveLength(17)
+  expect(sharedPorts[0]?.d.y).toBe(1)
+  expect(sharedPorts.at(-1)?.d.y).toBe(99)
+  expect(sharedPorts.some((port) => port.d.distToCentermostPortOnZ === 0)).toBe(
+    true,
+  )
+})
+
+test("buildPolyHyperGraphFromRegions marks very short midpoint ports as cramped", () => {
+  const graph = buildPolyHyperGraphFromRegions({
+    regions: [
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 0.2 },
+        { x: 0, y: 0.2 },
+      ],
+      [
+        { x: 10, y: 0 },
+        { x: 20, y: 0 },
+        { x: 20, y: 0.2 },
+        { x: 10, y: 0.2 },
+      ],
+    ],
+    availableZ: [[0], [0]],
+    layerCount: 1,
+    portSpacing: 1,
+    portMarginFromSegmentEndpoint: 0,
+  })
+
+  expect(graph.ports).toHaveLength(1)
+  expect(graph.ports[0]?.d.cramped).toBe(true)
 })
 
 test("buildPolyHyperGraphFromRegions emits net-reserved obstacle regions with boundary ports", () => {
