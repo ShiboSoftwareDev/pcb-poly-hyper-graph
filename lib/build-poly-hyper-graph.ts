@@ -77,6 +77,9 @@ const segmentKey = (a: Point, b: Point) => {
   return aKey < bKey ? `${aKey}|${bKey}` : `${bKey}|${aKey}`
 }
 
+const portPointKey = (point: Point, z: number) =>
+  `${roundPointCoord(point.x)},${roundPointCoord(point.y)},${z}`
+
 const getBounds = (polygon: Point[]) => {
   let minX = Number.POSITIVE_INFINITY
   let maxX = Number.NEGATIVE_INFINITY
@@ -350,13 +353,46 @@ const getPortPointsAlongSegment = (
   }))
 }
 
-const getSinglePortPointOnSegment = (a: Point, b: Point) => {
-  if (Math.hypot(b.x - a.x, b.y - a.y) < EPSILON) return undefined
-  return {
-    ...segmentMidpoint(a, b),
-    distToCentermostPortOnZ: 0,
-    cramped: false,
+const getNearestUnusedSinglePortPointOnSegment = (
+  a: Point,
+  b: Point,
+  z: number,
+  usedPortPointKeys: Set<string>,
+) => {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length = Math.hypot(dx, dy)
+  if (length < EPSILON) return undefined
+
+  const centerDistanceFromStart = length / 2
+  const candidateCount = 33
+  const candidateIndexes = Array.from({ length: candidateCount }, (_, index) =>
+    index === 0
+      ? Math.floor(candidateCount / 2)
+      : Math.floor(candidateCount / 2) +
+        (index % 2 === 1 ? -Math.ceil(index / 2) : Math.ceil(index / 2)),
+  )
+
+  for (const candidateIndex of candidateIndexes) {
+    const t = candidateIndex / (candidateCount - 1)
+    if (t <= 0 || t >= 1) continue
+
+    const distanceFromStart = length * t
+    const portPoint = {
+      x: a.x + dx * t,
+      y: a.y + dy * t,
+      distToCentermostPortOnZ: Math.abs(
+        distanceFromStart - centerDistanceFromStart,
+      ),
+      cramped: false,
+    }
+
+    if (!usedPortPointKeys.has(portPointKey(portPoint, z))) {
+      return portPoint
+    }
   }
+
+  return undefined
 }
 
 const getStringProperty = (value: unknown, key: string) => {
@@ -558,6 +594,7 @@ export const buildPolyHyperGraphFromRegions = (params: {
   }
 
   let portIndex = 0
+  const usedPortPointKeys = new Set<string>()
   const pushPort = (params: {
     region1Id: string
     region2Id: string
@@ -590,6 +627,7 @@ export const buildPolyHyperGraphFromRegions = (params: {
         ...(portPoint.cramped ? { cramped: true } : {}),
       },
     })
+    usedPortPointKeys.add(portPointKey(portPoint, z))
     portIndex += 1
     return portId
   }
@@ -651,10 +689,15 @@ export const buildPolyHyperGraphFromRegions = (params: {
         )
         if (sharedZ.length === 0) continue
 
-        const portPoint = getSinglePortPointOnSegment(meshEdge.a, meshEdge.b)
-        if (!portPoint) continue
-
         for (const z of sharedZ) {
+          const portPoint = getNearestUnusedSinglePortPointOnSegment(
+            meshEdge.a,
+            meshEdge.b,
+            z,
+            usedPortPointKeys,
+          )
+          if (!portPoint) continue
+
           const portId = pushPort({
             region1Id: `${regionIdPrefix}-${meshEdge.regionIndex}`,
             region2Id: obstacleInfo.regionId,
