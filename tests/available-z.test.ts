@@ -1,16 +1,16 @@
 import { expect, test } from "bun:test"
+import { loadSerializedHyperGraphAsPoly } from "tiny-hypergraph/lib/index"
 import {
-  applySerializedRegionNetIdsToLoadedProblem,
-  buildPolyHyperGraphFromRegions,
   DEFAULT_OBSTACLE_MARGIN,
   DEFAULT_TRACE_WIDTH,
   MAX_DENSE_PORTS_BEFORE_DECIMATION,
   PORT_MARGIN_FROM_SEGMENT_ENDPOINT,
   PORT_SPACING,
+  applySerializedRegionNetIdsToLoadedProblem,
+  buildPolyHyperGraphFromRegions,
 } from "../lib/build-poly-hyper-graph"
 import { computeConvexRegions } from "../lib/computeConvexRegions"
 import type { Point } from "../lib/types"
-import { loadSerializedHyperGraphAsPoly } from "tiny-hypergraph/lib/index"
 
 const centroid = (polygon: Point[]) =>
   polygon.reduce(
@@ -424,4 +424,73 @@ test("buildPolyHyperGraphFromRegions connects obstacle ports across two-sided la
   expect(topBoundaryPorts[0]?.d.x).toBe(2)
   expect(topBoundaryPorts[0]?.d.y).toBe(1)
   expect(blockedInteriorPorts).toHaveLength(0)
+})
+
+test("buildPolyHyperGraphFromRegions does not emit coincident same-layer ports across obstacle boundaries", () => {
+  const graph = buildPolyHyperGraphFromRegions({
+    regions: [
+      [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+        { x: 2, y: 2 },
+        { x: 0, y: 2 },
+      ],
+      [
+        { x: 2, y: 0 },
+        { x: 4, y: 0 },
+        { x: 4, y: 2 },
+        { x: 2, y: 2 },
+      ],
+    ],
+    availableZ: [[0], [0]],
+    layerCount: 1,
+    portSpacing: 10,
+    portMarginFromSegmentEndpoint: 0,
+    connections: [
+      {
+        connectionId: "source_trace_a",
+        mutuallyConnectedNetworkId: "source_net_a",
+        start: { x: 3, y: 1, z: 0, pointId: "pcb_port_a" },
+        end: { x: 1, y: 1, z: 0, pointId: "pcb_port_b" },
+      },
+    ],
+    obstacleRegions: [
+      {
+        regionId: "pad-a",
+        polygon: [
+          { x: 2, y: 0 },
+          { x: 4, y: 0 },
+          { x: 4, y: 2 },
+          { x: 2, y: 2 },
+        ],
+        availableZ: [0],
+        connectedTo: ["source_net_a", "pcb_port_a"],
+      },
+    ],
+  })
+
+  const boundaryPorts = graph.ports.filter(
+    (port) => !port.portId.startsWith("terminal-"),
+  )
+  const sharedObstacleEdgePorts = boundaryPorts.filter(
+    (port) =>
+      Math.abs(port.d.x - 2) < 1e-9 &&
+      (port.region1Id === "pad-a" ||
+        port.region2Id === "pad-a" ||
+        (port.region1Id === "free-0" && port.region2Id === "free-1") ||
+        (port.region1Id === "free-1" && port.region2Id === "free-0")),
+  )
+  const sharedObstacleBoundaryPorts = sharedObstacleEdgePorts.filter((port) =>
+    port.portId.includes("::obstacle"),
+  )
+  const duplicatePortGroups = Object.values(
+    Object.groupBy(
+      boundaryPorts,
+      (port) => `${port.d.x},${port.d.y},${port.d.z}`,
+    ),
+  ).filter((ports) => (ports?.length ?? 0) > 1)
+
+  expect(sharedObstacleEdgePorts).toHaveLength(1)
+  expect(sharedObstacleBoundaryPorts).toHaveLength(0)
+  expect(duplicatePortGroups).toEqual([])
 })
