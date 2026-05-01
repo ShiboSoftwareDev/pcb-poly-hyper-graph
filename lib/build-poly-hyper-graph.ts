@@ -618,6 +618,19 @@ export const buildPolyHyperGraphFromRegions = (params: {
     for (let pointIndex = 0; pointIndex < portPoints.length; pointIndex++) {
       const portPoint = portPoints[pointIndex]!
       for (const z of sharedZ) {
+        // If an obstacle occupies this same boundary on this layer, the edge is
+        // not free/free traversable; access should go through obstacle ports.
+        const hasSameLayerObstacleOnEdge = obstacleRegionInfos.some(
+          (obstacleInfo) =>
+            obstacleInfo.availableZ.includes(z) &&
+            isBoundarySegmentOnPolygon(
+              first!.a,
+              first!.b,
+              obstacleInfo.polygon,
+            ),
+        )
+        if (hasSameLayerObstacleOnEdge) continue
+
         const portId = pushPort({
           region1Id: `${regionIdPrefix}-${first!.regionIndex}`,
           region2Id: `${regionIdPrefix}-${second!.regionIndex}`,
